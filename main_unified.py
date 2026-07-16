@@ -28,10 +28,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
-GOOGLE_DRIVE_FILE_ID = "170aqeaXusB9aLkDOrZWG3nJBSfIBOCmV"
+GOOGLE_DRIVE_FILE_ID = "13uoErsVpvYwpPYoQbfaYlLOmClT6yee6"
 
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (AMAN DARI BADZIPFILE)
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DENGAN PENGECEKAN ZIP)
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
@@ -49,16 +49,26 @@ def download_and_extract_models():
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            print("📦 Unduhan selesai, mengekstrak file ke direktori proyek...")
+            
+            # Cek apakah file yang terdownload benar-benar ZIP atau halaman HTML error dari Google Drive
+            with open(output_zip, 'rb') as test_f:
+                header = test_f.read(4)
+            
+            # File ZIP yang valid selalu diawali dengan magic number b'PK\x03\x04'
+            if header != b'PK\x03\x04':
+                with open(output_zip, 'r', encoding='utf-8', errors='ignore') as html_f:
+                    error_content = html_f.read(500)
+                raise Exception(f"Google Drive menolak download (Terkena Limit/HTML). Isi balasan server: {error_content}")
+            
+            print("📦 Unduhan valid, mengekstrak file ke direktori proyek...")
+            with zipfile.ZipFile(output_zip, 'r') as zip_ref:
+                zip_ref.extractall(BASE_DIR)
+                
+            if os.path.exists(output_zip):
+                os.remove(output_zip)
+            print("✅ Ekstraksi selesai!")
         else:
             raise Exception(f"Gagal mendownload dari Google Drive. Status code: {response.status_code}")
-            
-        with zipfile.ZipFile(output_zip, 'r') as zip_ref:
-            zip_ref.extractall(BASE_DIR)
-            
-        if os.path.exists(output_zip):
-            os.remove(output_zip)
-        print("✅ Ekstraksi selesai!")
     else:
         print("✅ Folder all_models_data/backend_dynamic lokal sudah tersedia.")
 
