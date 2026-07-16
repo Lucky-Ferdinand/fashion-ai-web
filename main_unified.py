@@ -27,8 +27,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "backend_dynamic"))
 
-# Ganti dengan ID File Google Drive dari file all_models_data.zip milikmu
-GOOGLE_DRIVE_FILE_ID = "https://drive.google.com/file/d/1pbye6wAhVy4O5S7qi2A1YdW_ZOLKrm3O/view?usp=drive_link"
+# Ganti hanya dengan string ID File Google Drive yang murni (bukan URL panjang)
+GOOGLE_DRIVE_FILE_ID = "1pbye6wAhVy4O5S7qi2A1YdW_ZOLKrm3O"
 
 # Import layanan Dynamic Pricing
 from backend_dynamic.app.inference import DemandForecastService
@@ -45,10 +45,11 @@ def download_and_extract_models():
         print("⏳ File model besar tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
         
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
+        # Menggunakan format URL standar gdown untuk file ID Google Drive dengan opsi fuzzy
         url = f'https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}'
         
         # Download otomatis menggunakan gdown
-        gdown.download(url, output_zip, quiet=False)
+        gdown.download(url, output_zip, quiet=False, fuzzy=True)
         
         print("📦 Mengekstrak file model ke direktori proyek...")
         with zipfile.ZipFile(output_zip, 'r') as zip_ref:
