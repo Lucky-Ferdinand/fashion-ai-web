@@ -28,58 +28,28 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
-GOOGLE_DRIVE_FILE_ID = "13uoErsVpvYwpPYoQbfaYlLOmClT6yee6"
-
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (BYPASS VIRUS WARNING)
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI HUGGING FACE (ANTI LIMIT/VIRUS WARNING)
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
     
     if not os.path.exists(target_check_path):
-        print("⏳ File model/folder dynamic tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
+        print("⏳ File model tidak ditemukan secara lokal. Mengunduh dari Hugging Face...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
         
-        session = requests.Session()
-        url = f'https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_FILE_ID}'
+        # Menggunakan Link Direct Download dari Hugging Face
+        hf_url = "https://huggingface.co/datasets/Lucky1784/fashion-ai-models/resolve/main/all_models_data.zip?download=true"
         
-        response = session.get(url, stream=True)
+        response = requests.get(hf_url, stream=True)
         
-        # Tangkap token konfirmasi jika Google Drive memunculkan Virus Scan Warning / Large File Warning
-        for key, value in response.cookies.items():
-            if key.startswith("download_warning"):
-                url = f'https://drive.google.com/uc?export=download&confirm={value}&id={GOOGLE_DRIVE_FILE_ID}'
-                response = session.get(url, stream=True)
-                break
-        
-        # Tangkap token konfirmasi melalui parsing HTML jika ada tombol "Download anyway"
-        if "uc-download-link" in response.text or "Virus scan warning" in response.text:
-            for line in response.text.splitlines():
-                if "confirm=" in line and "href=" in line:
-                    from urllib.parse import unquote
-                    match = re.search(r'href="(/uc\?export=download[^"]+)"', line)
-                    if match:
-                        sub_url = "https://drive.google.com" + unquote(match.group(1))
-                        response = session.get(sub_url, stream=True)
-                        break
-
         if response.status_code == 200:
             with open(output_zip, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
             
-            # Cek apakah file yang terdownload benar-benar ZIP atau masih halaman HTML error
-            with open(output_zip, 'rb') as test_f:
-                header = test_f.read(4)
-            
-            # File ZIP yang valid selalu diawali dengan magic number b'PK\x03\x04'
-            if header != b'PK\x03\x04':
-                with open(output_zip, 'r', encoding='utf-8', errors='ignore') as html_f:
-                    error_content = html_f.read(500)
-                raise Exception(f"Google Drive menolak download. Isi balasan server: {error_content}")
-            
-            print("📦 Unduhan valid, mengekstrak file ke direktori proyek...")
+            print("📦 Unduhan selesai, mengekstrak file ke direktori proyek...")
             with zipfile.ZipFile(output_zip, 'r') as zip_ref:
                 zip_ref.extractall(BASE_DIR)
                 
@@ -87,9 +57,9 @@ def download_and_extract_models():
                 os.remove(output_zip)
             print("✅ Ekstraksi selesai!")
         else:
-            raise Exception(f"Gagal mendownload dari Google Drive. Status code: {response.status_code}")
+            raise Exception(f"Gagal mendownload dari Hugging Face. Status code: {response.status_code}")
     else:
-        print("✅ Folder all_models_data/backend_dynamic lokal sudah tersedia.")
+        print("✅ Folder all_models_data lokal sudah tersedia.")
 
 # Eksekusi download sebelum modul di-import agar tidak error ModuleNotFoundError
 download_and_extract_models()
