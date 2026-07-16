@@ -1,4 +1,4 @@
-# File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing)
+# File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
 import os
 # Paksa TensorFlow hanya menggunakan CPU untuk mencegah crash/looping (Out of Memory/CUDA error) di server cloud
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -25,11 +25,10 @@ from PIL import Image
 from sklearn.neighbors import NearestNeighbors
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI HUGGING FACE (ANTI LIMIT/VIRUS WARNING)
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI HUGGING FACE
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
@@ -37,10 +36,7 @@ def download_and_extract_models():
     if not os.path.exists(target_check_path):
         print("⏳ File model tidak ditemukan secara lokal. Mengunduh dari Hugging Face...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
-        
-        # Menggunakan Link Direct Download dari Hugging Face
         hf_url = "https://huggingface.co/datasets/Lucky1784/fashion-ai-models/resolve/main/all_models_data.zip?download=true"
-        
         response = requests.get(hf_url, stream=True)
         
         if response.status_code == 200:
@@ -48,11 +44,9 @@ def download_and_extract_models():
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
             print("📦 Unduhan selesai, mengekstrak file ke direktori proyek...")
             with zipfile.ZipFile(output_zip, 'r') as zip_ref:
                 zip_ref.extractall(BASE_DIR)
-                
             if os.path.exists(output_zip):
                 os.remove(output_zip)
             print("✅ Ekstraksi selesai!")
@@ -61,24 +55,22 @@ def download_and_extract_models():
     else:
         print("✅ Folder all_models_data lokal sudah tersedia.")
 
-# Eksekusi download sebelum modul di-import agar tidak error ModuleNotFoundError
+# Eksekusi unduhan saat script dibaca
 download_and_extract_models()
 
-# Import layanan Dynamic Pricing dengan jalur folder induk all_models_data
-from all_models_data.backend_dynamic.app.inference import DemandForecastService
-from all_models_data.backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
-
 # =========================================================================
-# VARIABEL GLOBAL & HELPER
+# VARIABEL GLOBAL (DI-SET NONE DULU AGAR HEMAT RAM)
 # =========================================================================
 model = None
 feature_extractor = None
 df_csv = None
 df_features = None
+vision_loaded = False
 
 next_item_model = None
 item_encoder = None
 metadata_dict = {}
+next_item_loaded = False
 
 rating_model = None
 category_encoder = None
@@ -86,19 +78,22 @@ scaler_X = None
 scaler_y = None
 df_global = None
 comparison_df = None
+rating_loaded = False
+
 forecast_service = None
+dynamic_pricing_loaded = False
 
 WOMEN_PATTERN = re.compile(r"\b(women|woman|wanita|ladies|girl|she)\b", re.IGNORECASE)
 MEN_PATTERN = re.compile(r"\b(men|man|pria|boy|he)\b", re.IGNORECASE)
 USD_TO_IDR = 17994
 
+# =========================================================================
+# HELPER FUNCTIONS
+# =========================================================================
 def guess_gender(title: str) -> str:
-    if not title:
-        return "unisex"
-    if WOMEN_PATTERN.search(title):
-        return "women"
-    if MEN_PATTERN.search(title):
-        return "men"
+    if not title: return "unisex"
+    if WOMEN_PATTERN.search(title): return "women"
+    if MEN_PATTERN.search(title): return "men"
     return "unisex"
 
 def format_idr(amount: float) -> str:
@@ -108,8 +103,7 @@ def format_idr(amount: float) -> str:
 def build_pricing(asin: str, raw_price) -> dict:
     try:
         base_usd = float(raw_price)
-        if base_usd <= 0:
-            raise ValueError
+        if base_usd <= 0: raise ValueError
     except (TypeError, ValueError):
         base_usd = 12.0
     base_idr = base_usd * USD_TO_IDR
@@ -117,18 +111,8 @@ def build_pricing(asin: str, raw_price) -> dict:
     if on_sale:
         discount_percent = 30
         sale_idr = base_idr * (1 - discount_percent / 100)
-        return {
-            "on_sale": True,
-            "discount_percent": discount_percent,
-            "price": format_idr(sale_idr),
-            "original_price": format_idr(base_idr),
-        }
-    return {
-        "on_sale": False,
-        "discount_percent": 0,
-        "price": format_idr(base_idr),
-        "original_price": None,
-    }
+        return {"on_sale": True, "discount_percent": discount_percent, "price": format_idr(sale_idr), "original_price": format_idr(base_idr)}
+    return {"on_sale": False, "discount_percent": 0, "price": format_idr(base_idr), "original_price": None}
 
 def forecast_future(model_inf, s_y, cat_encoded, current_seq, months=12):
     predictions = []
@@ -150,48 +134,39 @@ def preprocess_image(image_bytes):
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
-
 # =========================================================================
-# LIFESPAN: INISIALISASI SELURUH MODEL
+# FUNGSI LAZY LOADERS (MEMUAT MODEL HANYA JIKA DIMINTA)
 # =========================================================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global model, feature_extractor, df_csv, df_features
-    global next_item_model, item_encoder, metadata_dict
-    global rating_model, category_encoder, scaler_X, scaler_y, df_global, comparison_df
-    global forecast_service
-    
+def load_vision_models():
+    global model, feature_extractor, df_csv, df_features, vision_loaded
+    if vision_loaded: return
     import tensorflow as tf
-    print("🚀 [STARTUP] Memuat seluruh model AI secara terpadu...")
-
-    # 1. Load Klasifikasi Gambar (Diarahkan ke all_models_data/backend_rekomendasi)
+    print("⏳ [LAZY LOAD] Memuat model Vision & Rekomendasi ke RAM...")
     MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
     CSV_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
     PKL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'database_fitur_rekomendasi_FULL.pkl')
-
-    if os.path.exists(MODEL_PATH):
-        print(f"✅ Memuat model Deep Learning: {MODEL_PATH}")
+    
+    if os.path.exists(MODEL_PATH) and os.path.exists(CSV_PATH) and os.path.exists(PKL_PATH):
         model = tf.keras.models.load_model(MODEL_PATH)
         feature_extractor = tf.keras.Sequential(model.layers[:-1])
-    else:
-        print(f"❌ ERROR: File tidak ditemukan -> {MODEL_PATH}")
-
-    if os.path.exists(CSV_PATH) and os.path.exists(PKL_PATH):
-        print("✅ Memuat Dataset CSV dan Database Fitur...")
         df_csv = pd.read_csv(CSV_PATH)
         df_features = pd.read_pickle(PKL_PATH)
         df_features['Labels_lower'] = df_features['Labels'].astype(str).str.strip().str.lower()
-        print(f"✅ Database Vision AI Siap! Total data: {len(df_features)}")
+        vision_loaded = True
+        print("✅ Vision Model Loaded!")
     else:
-        print("❌ ERROR: File CSV atau PKL tidak ditemukan!")
+        print("❌ File Vision Model tidak ditemukan.")
 
-    # 2. Load Next Item Model (Diarahkan ke all_models_data/backend_nex_item)
+def load_next_item_models():
+    global next_item_model, item_encoder, metadata_dict, next_item_loaded
+    if next_item_loaded: return
+    import tensorflow as tf
+    print("⏳ [LAZY LOAD] Memuat model Next Item ke RAM...")
     try:
         next_item_model = tf.keras.models.load_model(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/fashion_gru_model.keras'), compile=False)
         with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/item_encoder.pkl'), 'rb') as f:
             item_encoder = pickle.load(f)
         valid_asins = set(item_encoder.classes_)
-        
         with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/meta_Amazon_Fashion.jsonl'), 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -200,22 +175,19 @@ async def lifespan(app: FastAPI):
                     if asin and (asin in valid_asins):
                         images = data.get('images', [])
                         img_url = "https://placehold.co/480x600/f5f5f5/1a1a1a?text=UNIQLO"
-                        if images and isinstance(images, list) and len(images) > 0:
-                            img_url = images[0].get('large', img_url)
+                        if images and isinstance(images, list) and len(images) > 0: img_url = images[0].get('large', img_url)
                         title = data.get('title', 'Fashion Product')
-                        metadata_dict[asin] = {
-                            "title": title,
-                            "image": img_url,
-                            "gender": guess_gender(title),
-                            **build_pricing(asin, data.get('price')),
-                        }
-                except Exception:
-                    continue
-        print("✅ Next Item Model & Metadata Loaded")
-    except Exception as e:
-        print(f"⚠️ Next Item Load Warning: {e}")
+                        metadata_dict[asin] = {"title": title, "image": img_url, "gender": guess_gender(title), **build_pricing(asin, data.get('price'))}
+                except Exception: continue
+        next_item_loaded = True
+        print("✅ Next Item Model Loaded!")
+    except Exception as e: print(f"⚠️ Load Warning Next Item: {e}")
 
-    # 3. Load Rating Model (Diarahkan ke all_models_data/backend_rating)
+def load_rating_models():
+    global rating_model, category_encoder, scaler_X, scaler_y, df_global, comparison_df, rating_loaded
+    if rating_loaded: return
+    import tensorflow as tf
+    print("⏳ [LAZY LOAD] Memuat model Rating LSTM ke RAM...")
     try:
         rating_model = tf.keras.Sequential([
             tf.keras.layers.LSTM(64, activation="tanh", input_shape=(3,3), return_sequences=False),
@@ -229,22 +201,31 @@ async def lifespan(app: FastAPI):
         scaler_y = joblib.load(os.path.join(BASE_DIR, "all_models_data/backend_rating/scaler_y.pkl"))
         df_global = pd.read_csv(os.path.join(BASE_DIR, "all_models_data/backend_rating/fashion_timeseries.csv"))
         comparison_df = pd.read_csv(os.path.join(BASE_DIR, "all_models_data/backend_rating/actual_vs_predicted.csv"))
-        print("✅ Rating LSTM Model Loaded")
-    except Exception as e:
-        print(f"⚠️ Rating Load Warning: {e}")
+        rating_loaded = True
+        print("✅ Rating Model Loaded!")
+    except Exception as e: print(f"⚠️ Load Warning Rating: {e}")
 
-    # 4. Load Dynamic Pricing (Diarahkan ke all_models_data/backend_dynamic)
+def load_dynamic_pricing_models():
+    global forecast_service, dynamic_pricing_loaded
+    if dynamic_pricing_loaded: return
+    print("⏳ [LAZY LOAD] Memuat model Dynamic Pricing ke RAM...")
     try:
+        from all_models_data.backend_dynamic.app.inference import DemandForecastService
         forecast_service = DemandForecastService(artifact_dir=os.path.join(BASE_DIR, "all_models_data/backend_dynamic/artifacts"))
-        print("✅ Dynamic Pricing Service Loaded")
-    except Exception as e:
-        print(f"⚠️ Dynamic Pricing Load Warning: {e}")
+        dynamic_pricing_loaded = True
+        print("✅ Dynamic Pricing Model Loaded!")
+    except Exception as e: print(f"⚠️ Load Warning Dynamic Pricing: {e}")
 
-    print("\n🚀 SERVER MASTER TERPADU SIAP DIGUNAKAN!")
+# =========================================================================
+# LIFESPAN & APP INIT
+# =========================================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 [STARTUP] API Berjalan (Model di-standby, akan dimuat ke memori saat endpoint dipanggil)")
     yield
     print("🛑 Mematikan server...")
 
-app = FastAPI(title="Fashion AI Unified Master API", lifespan=lifespan)
+app = FastAPI(title="Fashion AI Unified Master API - LAZY LOAD", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 class HistoryRequest(BaseModel):
@@ -253,15 +234,13 @@ class HistoryRequest(BaseModel):
 class CategoryInput(BaseModel):
     category: str
 
-
 # =========================================================================
-# ENDPOINTS: KLASIFIKASI & REKOMENDASI VISUAL
+# ENDPOINTS
 # =========================================================================
 @app.post("/recommend")
 def recommend_visual(file: UploadFile = File(...)):
-    if not file:
-        raise HTTPException(status_code=400, detail="File gambar tidak ditemukan dalam request")
-    
+    load_vision_models() # Hanya meload model vision
+    if not file: raise HTTPException(status_code=400, detail="File gambar tidak ditemukan dalam request")
     try:
         print("\n--- 🔍 MEMULAI PROSES KLASIFIKASI & REKOMENDASI ---")
         img_bytes = file.file.read()
@@ -269,42 +248,30 @@ def recommend_visual(file: UploadFile = File(...)):
         recommendations = []
 
         if model is None or feature_extractor is None or df_features is None or df_csv is None:
-            print("❌ ERROR: Model atau Database belum termuat dengan benar saat startup!")
-            return {"status": "success", "data": []}
+            return {"status": "error", "message": "Model belum termuat"}
 
-        # 1. Tebak Kategori
         preds = model.predict(processed_img, verbose=0)
         class_idx = np.argmax(preds, axis=1)[0]
         labels = ["bag", "dress", "jacket", "pants", "shirt", "shoes", "skirt", "socks"] 
         predicted_category = labels[class_idx] if class_idx < len(labels) else "UMUM"
-        print(f"[AI Bekerja] Model menebak: {predicted_category.upper()}")
-
-        # 2. Ekstrak Embedding
+        
         query_embedding = feature_extractor.predict(processed_img, verbose=0).flatten()
-
-        # 3. Filter database
         filtered_df = df_features[df_features['Labels_lower'] == predicted_category.lower()].copy()
 
         if len(filtered_df) > 0:
-            print(f"Mencari kemiripan dari {len(filtered_df)} gambar {predicted_category}...")
             db_embeddings_matrix = np.stack(filtered_df['embedding'].values)
             n_neighbors = min(5, len(filtered_df))
-            
             knn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine')
             knn.fit(db_embeddings_matrix)
             distances, indices = knn.kneighbors([query_embedding])
             
             for i, idx in enumerate(indices[0]):
                 img_path = str(filtered_df.iloc[idx]['image_path'])
-                
-                filename = img_path.replace('\\', '/').split('/')[-1]
-                parent_asin = filename.split('.')[0].strip()
-                
+                parent_asin = img_path.replace('\\', '/').split('/')[-1].split('.')[0].strip()
                 product_detail = df_csv[df_csv['parent_asin'].astype(str).str.strip() == parent_asin]
                 
                 if not product_detail.empty:
                     row = product_detail.iloc[0]
-                    sim_score = 1.0 - distances[0][i] 
                     recommendations.append({
                         "parent_asin": str(row['parent_asin']).strip(), 
                         "title": str(row['title']).strip(),
@@ -312,29 +279,15 @@ def recommend_visual(file: UploadFile = File(...)):
                         "gender": str(row.get('gender', 'UNISEX')),
                         "warna": str(row.get('warna', '-')),
                         "image_url": str(row.get('image_url', '')),
-                        "similarity": float(sim_score)
+                        "similarity": float(1.0 - distances[0][i])
                     })
-                else:
-                    print(f"⚠️ Peringatan: Gambar '{parent_asin}' ketemu di database PKL, tapi data judulnya tidak ada di CSV!")
-
-            print(f"✅ Pencarian Selesai! Berhasil mengirim {len(recommendations)} rekomendasi ke Web.")
-        else:
-            print(f"⚠️ Peringatan: Kategori {predicted_category} kosong di dalam database PKL.")
-
-        return {
-            "status": "success",
-            "data": recommendations
-        }
+        return {"status": "success", "data": recommendations}
     except Exception as e:
-        print(f"❌ Error sistem fatal: {str(e)}")
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-# =========================================================================
-# ENDPOINTS LAINNYA
-# =========================================================================
 @app.get("/api/products")
 def get_catalog(page: int = 1, limit: int = 24, gender: Optional[str] = "all"):
+    load_next_item_models() # Panggil lazy load
     if not item_encoder: return {"products": [], "total_pages": 1, "total_items": 0}
     valid_catalog = []
     for asin in item_encoder.classes_:
@@ -349,6 +302,7 @@ def get_catalog(page: int = 1, limit: int = 24, gender: Optional[str] = "all"):
 
 @app.post("/api/recommend")
 def recommend_next_item(data: HistoryRequest):
+    load_next_item_models() # Panggil lazy load
     from tensorflow.keras.preprocessing.sequence import pad_sequences
     if not data.click_history or not item_encoder: return []
     encoded_history = [int(item_encoder.transform([asin])[0]) + 1 for asin in data.click_history if asin in item_encoder.classes_]
@@ -372,13 +326,18 @@ def recommend_next_item(data: HistoryRequest):
     return recommendations
 
 @app.get("/categories")
-def get_categories(): return {"categories": sorted(df_global["kategori"].unique().tolist()) if df_global is not None else []}
+def get_categories(): 
+    load_rating_models() # Panggil lazy load
+    return {"categories": sorted(df_global["kategori"].unique().tolist()) if df_global is not None else []}
 
 @app.get("/model-performance")
-def model_performance(): return {"mae": 0.2869, "rmse": 0.4117, "mape": 7.28, "accuracy": 92.72, "comparison": comparison_df.to_dict(orient="records") if comparison_df is not None else []}
+def model_performance(): 
+    load_rating_models() # Panggil lazy load
+    return {"mae": 0.2869, "rmse": 0.4117, "mape": 7.28, "accuracy": 92.72, "comparison": comparison_df.to_dict(orient="records") if comparison_df is not None else []}
 
 @app.post("/predict")
 def predict_rating(data: CategoryInput):
+    load_rating_models() # Panggil lazy load
     if df_global is None or rating_model is None: return {"error": "Model atau dataset belum siap"}
     category = data.category
     if category not in df_global["kategori"].unique(): return {"error": "Kategori tidak ditemukan"}
@@ -404,7 +363,9 @@ def predict_rating(data: CategoryInput):
 
 @app.post("/predict-demand")
 def predict_demand_and_pricing(request: dict):
+    load_dynamic_pricing_models() # Panggil lazy load
     try:
+        from all_models_data.backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
         if not forecast_service: raise HTTPException(status_code=500, detail="DemandForecastService belum diinisialisasi.")
         prediction_result = forecast_service.predict(request)
         pricing_result = make_dynamic_pricing_recommendation(base_price=request.get("price", 12.0), historical_mean_demand_12m=prediction_result["historical_mean_demand_12m"], predicted_mean_demand_12m=prediction_result["predicted_mean_demand_12m"])
@@ -412,7 +373,7 @@ def predict_demand_and_pricing(request: dict):
         return {
             "product": {"parent_asin": request.get("parent_asin"), "title": request.get("title"), "price": request.get("price"), "average_rating": request.get("average_rating"), "rating_number": request.get("rating_number")},
             "history": history, "forecast": prediction_result["forecast"], "pricing": pricing_result,
-            "model_info": {"model_name": "GRU Delta Demand 12 Bulan - Filtered Dataset", "target": "future_delta = future_log_demand - last_input_log_demand", "forecast_horizon": 12}
+            "model_info": {"model_name": "GRU Delta Demand 12 Bulan", "target": "future_delta = future_log_demand", "forecast_horizon": 12}
         }
     except Exception as error:
         raise HTTPException(status_code=400, detail=str(error))
