@@ -133,6 +133,12 @@ def load_vision_models():
     global model, feature_extractor, df_csv, df_features, vision_loaded
     if vision_loaded: return
     import tensorflow as tf
+    # Paksa blokir GPU sepenuhnya agar tidak terjadi error CUDA cuInit
+    try:
+        tf.config.set_visible_devices([], 'GPU')
+    except Exception:
+        pass
+        
     print("⏳ [LAZY LOAD] Memuat model Vision & Rekomendasi ke RAM...")
     MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
     CSV_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
@@ -153,6 +159,10 @@ def load_next_item_models():
     global next_item_model, item_encoder, metadata_dict, next_item_loaded
     if next_item_loaded: return
     import tensorflow as tf
+    try:
+        tf.config.set_visible_devices([], 'GPU')
+    except Exception:
+        pass
     print("⏳ [LAZY LOAD] Memuat model Next Item ke RAM...")
     try:
         MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'fashion_gru_model.keras')
@@ -183,6 +193,10 @@ def load_rating_models():
     global rating_model, category_encoder, scaler_X, scaler_y, df_global, comparison_df, rating_loaded
     if rating_loaded: return
     import tensorflow as tf
+    try:
+        tf.config.set_visible_devices([], 'GPU')
+    except Exception:
+        pass
     print("⏳ [LAZY LOAD] Memuat model Rating LSTM ke RAM...")
     try:
         rating_model = tf.keras.Sequential([
