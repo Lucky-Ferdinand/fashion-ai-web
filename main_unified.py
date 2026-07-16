@@ -1,6 +1,11 @@
 # File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing)
-import sys
 import os
+# Paksa TensorFlow hanya menggunakan CPU untuk mencegah crash/looping (Out of Memory/CUDA error) di server cloud
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+import sys
 import io
 import json
 import pickle
@@ -18,10 +23,6 @@ from contextlib import asynccontextmanager
 from typing import Optional
 from PIL import Image
 from sklearn.neighbors import NearestNeighbors
-
-# --- 1. PENGATURAN LINGKUNGAN & JALUR ---
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
