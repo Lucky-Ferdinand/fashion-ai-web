@@ -155,7 +155,6 @@ def load_next_item_models():
     import tensorflow as tf
     print("⏳ [LAZY LOAD] Memuat model Next Item ke RAM...")
     try:
-        # Menggunakan folder 'backend_next_item' (dengan huruf 't')
         MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'fashion_gru_model.keras')
         ENCODER_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'item_encoder.pkl')
         JSONL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'meta_Amazon_Fashion.jsonl')
@@ -209,7 +208,7 @@ def load_dynamic_pricing_models():
     try:
         app_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app")
         if app_path not in sys.path:
-            sys.path.append(app_path)
+            sys.path.insert(0, app_path)
             
         from inference import DemandForecastService
         artifact_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "artifacts")
