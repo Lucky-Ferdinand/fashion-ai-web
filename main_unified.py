@@ -1,4 +1,4 @@
-# File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
+# File: main_unified.py (Master Terpadu - Klasifikasi Gambar Saja, Matikan Rekomendasi/KNN)
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -21,7 +21,6 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from typing import Optional
 from PIL import Image
-from sklearn.neighbors import NearestNeighbors
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
@@ -58,9 +57,6 @@ def download_and_extract_models():
 # VARIABEL GLOBAL (LAZY LOAD)
 # =========================================================================
 model = None
-feature_extractor = None
-df_csv = None
-df_features = None
 vision_loaded = False
 
 next_item_model = None
@@ -127,10 +123,10 @@ def preprocess_image(image_bytes):
     return img_array
 
 # =========================================================================
-# FUNGSI LAZY LOADERS
+# FUNGSI LAZY LOADERS (HANYA KLASIFIKASI)
 # =========================================================================
 def load_vision_models():
-    global model, feature_extractor, df_csv, df_features, vision_loaded
+    global model, vision_loaded
     if vision_loaded: return
     import tensorflow as tf
     try:
@@ -138,21 +134,15 @@ def load_vision_models():
     except Exception:
         pass
         
-    print("⏳ [LAZY LOAD] Memuat model Vision & Rekomendasi ke RAM...")
+    print("⏳ [LAZY LOAD] Memuat model Klasifikasi Gambar ke RAM...")
     MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
-    CSV_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
-    PKL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'database_fitur_rekomendasi_FULL.pkl')
     
-    if os.path.exists(MODEL_PATH) and os.path.exists(CSV_PATH) and os.path.exists(PKL_PATH):
+    if os.path.exists(MODEL_PATH):
         model = tf.keras.models.load_model(MODEL_PATH)
-        feature_extractor = tf.keras.Sequential(model.layers[:-1])
-        df_csv = pd.read_csv(CSV_PATH)
-        df_features = pd.read_pickle(PKL_PATH)
-        df_features['Labels_lower'] = df_features['Labels'].astype(str).str.strip().str.lower()
         vision_loaded = True
-        print("✅ Vision Model Loaded!")
+        print("✅ Klasifikasi Model Loaded!")
     else:
-        print("❌ File Vision Model tidak ditemukan.")
+        print("❌ File Klasifikasi Model tidak ditemukan.")
 
 def load_next_item_models():
     global next_item_model, item_encoder, metadata_dict, next_item_loaded
@@ -274,46 +264,26 @@ def recommend_visual(file: UploadFile = File(...)):
     load_vision_models() 
     if not file: raise HTTPException(status_code=400, detail="File gambar tidak ditemukan dalam request")
     try:
-        print("\n--- 🔍 MEMULAI PROSES KLASIFIKASI & REKOMENDASI ---")
+        print("\n--- 🔍 MEMULAI PROSES KLASIFIKASI GAMBAR ---")
         img_bytes = file.file.read()
         processed_img = preprocess_image(img_bytes)
-        recommendations = []
 
-        if model is None or feature_extractor is None or df_features is None or df_csv is None:
-            return {"status": "error", "message": "Model belum termuat"}
+        if model is None:
+            return {"status": "error", "message": "Model klasifikasi belum termuat"}
 
         preds = model.predict(processed_img, verbose=0)
         class_idx = np.argmax(preds, axis=1)[0]
         labels = ["bag", "dress", "jacket", "pants", "shirt", "shoes", "skirt", "socks"] 
         predicted_category = labels[class_idx] if class_idx < len(labels) else "UMUM"
+        confidence = float(np.max(preds))
         
-        query_embedding = feature_extractor.predict(processed_img, verbose=0).flatten()
-        filtered_df = df_features[df_features['Labels_lower'] == predicted_category.lower()].copy()
-
-        if len(filtered_df) > 0:
-            db_embeddings_matrix = np.stack(filtered_df['embedding'].values)
-            n_neighbors = min(5, len(filtered_df))
-            knn = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine')
-            knn.fit(db_embeddings_matrix)
-            distances, indices = knn.kneighbors([query_embedding])
-            
-            for i, idx in enumerate(indices[0]):
-                img_path = str(filtered_df.iloc[idx]['image_path'])
-                parent_asin = img_path.replace('\\', '/').split('/')[-1].split('.')[0].strip()
-                product_detail = df_csv[df_csv['parent_asin'].astype(str).str.strip() == parent_asin]
-                
-                if not product_detail.empty:
-                    row = product_detail.iloc[0]
-                    recommendations.append({
-                        "parent_asin": str(row['parent_asin']).strip(), 
-                        "title": str(row['title']).strip(),
-                        "kategori": str(row.get('kategori', predicted_category)),
-                        "gender": str(row.get('gender', 'UNISEX')),
-                        "warna": str(row.get('warna', '-')),
-                        "image_url": str(row.get('image_url', '')),
-                        "similarity": float(1.0 - distances[0][i])
-                    })
-        return {"status": "success", "data": recommendations}
+        # Mengembalikan hasil klasifikasi saja tanpa memanggil database fitur / KNN
+        return {
+            "status": "success", 
+            "predicted_category": predicted_category,
+            "confidence": confidence,
+            "data": []
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
