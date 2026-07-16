@@ -52,6 +52,17 @@ def download_and_extract_models():
                 response = session.get(url, stream=True)
                 break
         
+        # Tangkap token konfirmasi melalui parsing HTML jika ada tombol "Download anyway"
+        if "uc-download-link" in response.text or "Virus scan warning" in response.text:
+            for line in response.text.splitlines():
+                if "confirm=" in line and "href=" in line:
+                    from urllib.parse import unquote
+                    match = re.search(r'href="(/uc\?export=download[^"]+)"', line)
+                    if match:
+                        sub_url = "https://drive.google.com" + unquote(match.group(1))
+                        response = session.get(sub_url, stream=True)
+                        break
+
         if response.status_code == 200:
             with open(output_zip, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
