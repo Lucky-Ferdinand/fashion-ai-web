@@ -23,45 +23,40 @@ from sklearn.neighbors import NearestNeighbors
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-# Mengunci Path Absolut agar file selalu ditemukan di mana pun terminal dibuka
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "backend_dynamic"))
 
-# Ganti hanya dengan string ID File Google Drive yang murni (bukan URL panjang)
 GOOGLE_DRIVE_FILE_ID = "1pbye6wAhVy4O5S7qi2A1YdW_ZOLKrm3O"
 
-# Import layanan Dynamic Pricing
-from backend_dynamic.app.inference import DemandForecastService
-from backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
-
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DIJALANKAN DI AWAL)
 # =========================================================================
 def download_and_extract_models():
-    # Cek apakah salah satu model utama sudah ada di server lokal
-    target_check_path = os.path.join(BASE_DIR, "backend_rekomendasi", "model_klasifikasi_terbaik.keras")
+    target_check_path = os.path.join(BASE_DIR, "backend_dynamic", "app", "inference.py")
     
     if not os.path.exists(target_check_path):
-        print("⏳ File model besar tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
-        
+        print("⏳ File model/folder dynamic tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
-        # Menggunakan format URL standar gdown untuk file ID Google Drive dengan opsi fuzzy
         url = f'https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}'
         
-        # Download otomatis menggunakan gdown
         gdown.download(url, output_zip, quiet=False, fuzzy=True)
         
-        print("📦 Mengekstrak file model ke direktori proyek...")
+        print("📦 Mengekstrak file ke direktori proyek...")
         with zipfile.ZipFile(output_zip, 'r') as zip_ref:
             zip_ref.extractall(BASE_DIR)
             
-        # Hapus file zip setelah selesai diekstrak agar memori server tidak penuh
         if os.path.exists(output_zip):
             os.remove(output_zip)
-        print("✅ Semua model berhasil diunduh dan dipasang secara otomatis!")
+        print("✅ Ekstraksi selesai!")
     else:
-        print("✅ Model lokal sudah tersedia.")
+        print("✅ Folder backend_dynamic lokal sudah tersedia.")
 
+# Eksekusi download sebelum modul di-import agar tidak error ModuleNotFoundError
+download_and_extract_models()
+
+# Import layanan Dynamic Pricing setelah folder dipastikan ada
+from backend_dynamic.app.inference import DemandForecastService
+from backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
 
 # =========================================================================
 # VARIABEL GLOBAL & HELPER
@@ -151,9 +146,6 @@ def preprocess_image(image_bytes):
 # =========================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Jalankan pengunduh otomatis jika file model besar belum ada di server
-    download_and_extract_models()
-
     global model, feature_extractor, df_csv, df_features
     global next_item_model, item_encoder, metadata_dict
     global rating_model, category_encoder, scaler_X, scaler_y, df_global, comparison_df
@@ -162,7 +154,7 @@ async def lifespan(app: FastAPI):
     import tensorflow as tf
     print("🚀 [STARTUP] Memuat seluruh model AI secara terpadu...")
 
-    # 2. Load Klasifikasi Gambar (Diarahkan ke folder backend_rekomendasi)
+    # 1. Load Klasifikasi Gambar
     MODEL_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
     CSV_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
     PKL_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'database_fitur_rekomendasi_FULL.pkl')
@@ -183,7 +175,7 @@ async def lifespan(app: FastAPI):
     else:
         print("❌ ERROR: File CSV atau PKL tidak ditemukan!")
 
-    # 3. Load Next Item Model
+    # 2. Load Next Item Model
     try:
         next_item_model = tf.keras.models.load_model(os.path.join(BASE_DIR, 'backend_next_item/fashion_gru_model.keras'), compile=False)
         with open(os.path.join(BASE_DIR, 'backend_next_item/item_encoder.pkl'), 'rb') as f:
@@ -213,7 +205,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Next Item Load Warning: {e}")
 
-    # 4. Load Rating Model
+    # 3. Load Rating Model
     try:
         rating_model = tf.keras.Sequential([
             tf.keras.layers.LSTM(64, activation="tanh", input_shape=(3,3), return_sequences=False),
@@ -231,7 +223,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Rating Load Warning: {e}")
 
-    # 5. Load Dynamic Pricing
+    # 4. Load Dynamic Pricing
     try:
         forecast_service = DemandForecastService(artifact_dir=os.path.join(BASE_DIR, "backend_dynamic/artifacts"))
         print("✅ Dynamic Pricing Service Loaded")
@@ -295,11 +287,9 @@ def recommend_visual(file: UploadFile = File(...)):
             for i, idx in enumerate(indices[0]):
                 img_path = str(filtered_df.iloc[idx]['image_path'])
                 
-                # Ekstraksi ID paling kejam dan anti-gagal
                 filename = img_path.replace('\\', '/').split('/')[-1]
                 parent_asin = filename.split('.')[0].strip()
                 
-                # Pencarian CSV
                 product_detail = df_csv[df_csv['parent_asin'].astype(str).str.strip() == parent_asin]
                 
                 if not product_detail.empty:
@@ -311,7 +301,7 @@ def recommend_visual(file: UploadFile = File(...)):
                         "kategori": str(row.get('kategori', predicted_category)),
                         "gender": str(row.get('gender', 'UNISEX')),
                         "warna": str(row.get('warna', '-')),
-                        "image_url": str(row.get('image_url', '')),  # <--- Mengambil link gambar dari CSV
+                        "image_url": str(row.get('image_url', '')),
                         "similarity": float(sim_score)
                     })
                 else:
