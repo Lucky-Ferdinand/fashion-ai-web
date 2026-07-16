@@ -155,11 +155,16 @@ def load_next_item_models():
     import tensorflow as tf
     print("⏳ [LAZY LOAD] Memuat model Next Item ke RAM...")
     try:
-        next_item_model = tf.keras.models.load_model(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/fashion_gru_model.keras'), compile=False)
-        with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/item_encoder.pkl'), 'rb') as f:
+        # PERBAIKAN: Menggunakan folder 'backend_next_item' (menggunakan huruf 't')
+        MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'fashion_gru_model.keras')
+        ENCODER_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'item_encoder.pkl')
+        JSONL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_next_item', 'meta_Amazon_Fashion.jsonl')
+
+        next_item_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        with open(ENCODER_PATH, 'rb') as f:
             item_encoder = pickle.load(f)
         valid_asins = set(item_encoder.classes_)
-        with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/meta_Amazon_Fashion.jsonl'), 'r', encoding='utf-8') as f:
+        with open(JSONL_PATH, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -214,7 +219,6 @@ def load_dynamic_pricing_models():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 [STARTUP] API Berjalan. Memeriksa file model...")
-    # Proses download dipindahkan ke sini agar aplikasi bisa inisialisasi dengan benar
     download_and_extract_models()
     print("✅ API Siap Menerima Request!")
     yield
