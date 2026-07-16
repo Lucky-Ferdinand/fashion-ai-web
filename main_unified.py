@@ -206,17 +206,18 @@ def load_dynamic_pricing_models():
     if dynamic_pricing_loaded: return
     print("⏳ [LAZY LOAD] Memuat model Dynamic Pricing ke RAM...")
     try:
-        app_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app")
-        if app_path not in sys.path:
-            sys.path.insert(0, app_path)
+        backend_dynamic_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic")
+        if backend_dynamic_path not in sys.path:
+            sys.path.insert(0, backend_dynamic_path)
             
-        from inference import DemandForecastService
+        from app.inference import DemandForecastService
         artifact_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "artifacts")
             
         forecast_service = DemandForecastService(artifact_dir=artifact_path)
         dynamic_pricing_loaded = True
         print("✅ Dynamic Pricing Model Loaded!")
-    except Exception as e: print(f"⚠️ Load Warning Dynamic Pricing: {e}")
+    except Exception as e: 
+        print(f"⚠️ Load Warning Dynamic Pricing: {e}")
 
 # =========================================================================
 # LIFESPAN & APP INIT
@@ -373,7 +374,7 @@ def predict_rating(data: CategoryInput):
 def predict_demand_and_pricing(request: dict):
     load_dynamic_pricing_models()
     try:
-        from pricing import make_dynamic_pricing_recommendation
+        from app.pricing import make_dynamic_pricing_recommendation
         if not forecast_service: raise HTTPException(status_code=500, detail="DemandForecastService belum diinisialisasi.")
         prediction_result = forecast_service.predict(request)
         pricing_result = make_dynamic_pricing_recommendation(base_price=request.get("price", 12.0), historical_mean_demand_12m=prediction_result["historical_mean_demand_12m"], predicted_mean_demand_12m=prediction_result["predicted_mean_demand_12m"])
