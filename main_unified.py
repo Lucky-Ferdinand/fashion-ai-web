@@ -206,12 +206,12 @@ def load_dynamic_pricing_models():
     if dynamic_pricing_loaded: return
     print("⏳ [LAZY LOAD] Memuat model Dynamic Pricing ke RAM...")
     try:
-        backend_dynamic_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic")
+        backend_dynamic_path = os.path.abspath(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
         if backend_dynamic_path not in sys.path:
             sys.path.insert(0, backend_dynamic_path)
             
         from app.inference import DemandForecastService
-        artifact_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "artifacts")
+        artifact_path = os.path.join(backend_dynamic_path, "artifacts")
             
         forecast_service = DemandForecastService(artifact_dir=artifact_path)
         dynamic_pricing_loaded = True
