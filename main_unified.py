@@ -1,8 +1,8 @@
 # File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 import sys
 import io
@@ -133,7 +133,6 @@ def load_vision_models():
     global model, feature_extractor, df_csv, df_features, vision_loaded
     if vision_loaded: return
     import tensorflow as tf
-    # Paksa blokir GPU sepenuhnya agar tidak terjadi error CUDA cuInit
     try:
         tf.config.set_visible_devices([], 'GPU')
     except Exception:
