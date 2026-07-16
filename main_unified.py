@@ -1,4 +1,4 @@
-# File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Rekomendasi, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
+# File: main_unified.py (Master Terpadu - Klasifikasi & Rekomendasi Cepat, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
