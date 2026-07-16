@@ -28,7 +28,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
-GOOGLE_DRIVE_FILE_ID = "https://drive.google.com/file/d/170aqeaXusB9aLkDOrZWG3nJBSfIBOCmV/view?usp=sharing"
+GOOGLE_DRIVE_FILE_ID = "170aqeaXusB9aLkDOrZWG3nJBSfIBOCmV"
 
 # =========================================================================
 # FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DIJALANKAN DI AWAL)
