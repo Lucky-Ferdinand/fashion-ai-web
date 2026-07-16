@@ -31,7 +31,7 @@ sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 GOOGLE_DRIVE_FILE_ID = "13uoErsVpvYwpPYoQbfaYlLOmClT6yee6"
 
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DENGAN PENGECEKAN ZIP)
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (BYPASS VIRUS WARNING)
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
@@ -40,17 +40,25 @@ def download_and_extract_models():
         print("⏳ File model/folder dynamic tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
         
-        # Menggunakan parameter confirm=t untuk memaksa direct download file zip mentah
-        url = f'https://drive.google.com/uc?export=download&confirm=t&id={GOOGLE_DRIVE_FILE_ID}'
+        session = requests.Session()
+        url = f'https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_FILE_ID}'
         
-        response = requests.get(url, stream=True)
+        response = session.get(url, stream=True)
+        
+        # Tangkap token konfirmasi jika Google Drive memunculkan Virus Scan Warning / Large File Warning
+        for key, value in response.cookies.items():
+            if key.startswith("download_warning"):
+                url = f'https://drive.google.com/uc?export=download&confirm={value}&id={GOOGLE_DRIVE_FILE_ID}'
+                response = session.get(url, stream=True)
+                break
+        
         if response.status_code == 200:
             with open(output_zip, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
             
-            # Cek apakah file yang terdownload benar-benar ZIP atau halaman HTML error dari Google Drive
+            # Cek apakah file yang terdownload benar-benar ZIP atau masih halaman HTML error
             with open(output_zip, 'rb') as test_f:
                 header = test_f.read(4)
             
@@ -58,7 +66,7 @@ def download_and_extract_models():
             if header != b'PK\x03\x04':
                 with open(output_zip, 'r', encoding='utf-8', errors='ignore') as html_f:
                     error_content = html_f.read(500)
-                raise Exception(f"Google Drive menolak download (Terkena Limit/HTML). Isi balasan server: {error_content}")
+                raise Exception(f"Google Drive menolak download. Isi balasan server: {error_content}")
             
             print("📦 Unduhan valid, mengekstrak file ke direktori proyek...")
             with zipfile.ZipFile(output_zip, 'r') as zip_ref:
