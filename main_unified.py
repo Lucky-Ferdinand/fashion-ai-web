@@ -1,6 +1,5 @@
 # File: main_unified.py (Master Terpadu - Klasifikasi Gambar, Next Item, Rating, & Dynamic Pricing - LAZY LOADING)
 import os
-# Paksa TensorFlow hanya menggunakan CPU untuk mencegah crash/looping (Out of Memory/CUDA error) di server cloud
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -28,13 +27,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI HUGGING FACE
+# FUNGSI PENGUNDUH OTOMATIS
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
     
     if not os.path.exists(target_check_path):
-        print("⏳ File model tidak ditemukan secara lokal. Mengunduh dari Hugging Face...")
+        print("⏳ File model tidak ditemukan secara lokal. Mengunduh dari Hugging Face (Mohon tunggu beberapa menit)...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
         hf_url = "https://huggingface.co/datasets/Lucky1784/fashion-ai-models/resolve/main/all_models_data.zip?download=true"
         response = requests.get(hf_url, stream=True)
@@ -55,11 +54,8 @@ def download_and_extract_models():
     else:
         print("✅ Folder all_models_data lokal sudah tersedia.")
 
-# Eksekusi unduhan saat script dibaca
-download_and_extract_models()
-
 # =========================================================================
-# VARIABEL GLOBAL (DI-SET NONE DULU AGAR HEMAT RAM)
+# VARIABEL GLOBAL (LAZY LOAD)
 # =========================================================================
 model = None
 feature_extractor = None
@@ -87,9 +83,6 @@ WOMEN_PATTERN = re.compile(r"\b(women|woman|wanita|ladies|girl|she)\b", re.IGNOR
 MEN_PATTERN = re.compile(r"\b(men|man|pria|boy|he)\b", re.IGNORECASE)
 USD_TO_IDR = 17994
 
-# =========================================================================
-# HELPER FUNCTIONS
-# =========================================================================
 def guess_gender(title: str) -> str:
     if not title: return "unisex"
     if WOMEN_PATTERN.search(title): return "women"
@@ -104,8 +97,7 @@ def build_pricing(asin: str, raw_price) -> dict:
     try:
         base_usd = float(raw_price)
         if base_usd <= 0: raise ValueError
-    except (TypeError, ValueError):
-        base_usd = 12.0
+    except (TypeError, ValueError): base_usd = 12.0
     base_idr = base_usd * USD_TO_IDR
     on_sale = (abs(hash(asin)) % 5) == 0
     if on_sale:
@@ -135,7 +127,7 @@ def preprocess_image(image_bytes):
     return img_array
 
 # =========================================================================
-# FUNGSI LAZY LOADERS (MEMUAT MODEL HANYA JIKA DIMINTA)
+# FUNGSI LAZY LOADERS
 # =========================================================================
 def load_vision_models():
     global model, feature_extractor, df_csv, df_features, vision_loaded
@@ -221,7 +213,10 @@ def load_dynamic_pricing_models():
 # =========================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 [STARTUP] API Berjalan (Model di-standby, akan dimuat ke memori saat endpoint dipanggil)")
+    print("🚀 [STARTUP] API Berjalan. Memeriksa file model...")
+    # Proses download dipindahkan ke sini agar aplikasi bisa inisialisasi dengan benar
+    download_and_extract_models()
+    print("✅ API Siap Menerima Request!")
     yield
     print("🛑 Mematikan server...")
 
@@ -237,9 +232,13 @@ class CategoryInput(BaseModel):
 # =========================================================================
 # ENDPOINTS
 # =========================================================================
+@app.get("/")
+def root():
+    return {"status": "success", "message": "Fashion AI API Server is Running!"}
+
 @app.post("/recommend")
 def recommend_visual(file: UploadFile = File(...)):
-    load_vision_models() # Hanya meload model vision
+    load_vision_models() 
     if not file: raise HTTPException(status_code=400, detail="File gambar tidak ditemukan dalam request")
     try:
         print("\n--- 🔍 MEMULAI PROSES KLASIFIKASI & REKOMENDASI ---")
@@ -287,7 +286,7 @@ def recommend_visual(file: UploadFile = File(...)):
 
 @app.get("/api/products")
 def get_catalog(page: int = 1, limit: int = 24, gender: Optional[str] = "all"):
-    load_next_item_models() # Panggil lazy load
+    load_next_item_models()
     if not item_encoder: return {"products": [], "total_pages": 1, "total_items": 0}
     valid_catalog = []
     for asin in item_encoder.classes_:
@@ -302,7 +301,7 @@ def get_catalog(page: int = 1, limit: int = 24, gender: Optional[str] = "all"):
 
 @app.post("/api/recommend")
 def recommend_next_item(data: HistoryRequest):
-    load_next_item_models() # Panggil lazy load
+    load_next_item_models()
     from tensorflow.keras.preprocessing.sequence import pad_sequences
     if not data.click_history or not item_encoder: return []
     encoded_history = [int(item_encoder.transform([asin])[0]) + 1 for asin in data.click_history if asin in item_encoder.classes_]
@@ -327,17 +326,17 @@ def recommend_next_item(data: HistoryRequest):
 
 @app.get("/categories")
 def get_categories(): 
-    load_rating_models() # Panggil lazy load
+    load_rating_models()
     return {"categories": sorted(df_global["kategori"].unique().tolist()) if df_global is not None else []}
 
 @app.get("/model-performance")
 def model_performance(): 
-    load_rating_models() # Panggil lazy load
+    load_rating_models()
     return {"mae": 0.2869, "rmse": 0.4117, "mape": 7.28, "accuracy": 92.72, "comparison": comparison_df.to_dict(orient="records") if comparison_df is not None else []}
 
 @app.post("/predict")
 def predict_rating(data: CategoryInput):
-    load_rating_models() # Panggil lazy load
+    load_rating_models()
     if df_global is None or rating_model is None: return {"error": "Model atau dataset belum siap"}
     category = data.category
     if category not in df_global["kategori"].unique(): return {"error": "Kategori tidak ditemukan"}
@@ -363,7 +362,7 @@ def predict_rating(data: CategoryInput):
 
 @app.post("/predict-demand")
 def predict_demand_and_pricing(request: dict):
-    load_dynamic_pricing_models() # Panggil lazy load
+    load_dynamic_pricing_models()
     try:
         from all_models_data.backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
         if not forecast_service: raise HTTPException(status_code=500, detail="DemandForecastService belum diinisialisasi.")
