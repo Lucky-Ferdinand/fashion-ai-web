@@ -12,7 +12,7 @@ import pickle
 import re
 import traceback
 import zipfile
-import gdown
+import requests
 import numpy as np
 import pandas as pd
 import joblib
@@ -31,7 +31,7 @@ sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 GOOGLE_DRIVE_FILE_ID = "170aqeaXusB9aLkDOrZWG3nJBSfIBOCmV"
 
 # =========================================================================
-# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DIJALANKAN DI AWAL)
+# FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (MENGGUNAKAN REQUESTS)
 # =========================================================================
 def download_and_extract_models():
     target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
@@ -39,11 +39,27 @@ def download_and_extract_models():
     if not os.path.exists(target_check_path):
         print("⏳ File model/folder dynamic tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
-        url = f'https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}&confirm=t'
+        url = f'https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_FILE_ID}'
         
-        gdown.download(url, output_zip, quiet=False, fuzzy=True)
+        session = requests.Session()
+        response = session.get(url, stream=True)
         
-        print("📦 Mengekstrak file ke direktori proyek...")
+        # Penanganan token konfirmasi Google Drive untuk file besar
+        for key, value in response.cookies.items():
+            if key.startswith("download_warning"):
+                url = f'https://drive.google.com/uc?export=download&confirm={value}&id={GOOGLE_DRIVE_FILE_ID}'
+                response = session.get(url, stream=True)
+                break
+                
+        if response.status_code == 200:
+            with open(output_zip, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            print("📦 Unduhan selesai, mengekstrak file ke direktori proyek...")
+        else:
+            raise Exception(f"Gagal mendownload dari Google Drive. Status code: {response.status_code}")
+            
         with zipfile.ZipFile(output_zip, 'r') as zip_ref:
             zip_ref.extractall(BASE_DIR)
             
