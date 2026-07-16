@@ -24,7 +24,8 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(BASE_DIR, "backend_dynamic"))
+# Diarahkan ke dalam folder utama all_models_data sesuai struktur repositori Anda
+sys.path.append(os.path.join(BASE_DIR, "all_models_data", "backend_dynamic"))
 
 GOOGLE_DRIVE_FILE_ID = "1pbye6wAhVy4O5S7qi2A1YdW_ZOLKrm3O"
 
@@ -32,12 +33,12 @@ GOOGLE_DRIVE_FILE_ID = "1pbye6wAhVy4O5S7qi2A1YdW_ZOLKrm3O"
 # FUNGSI PENGUNDUH OTOMATIS MODEL DARI GOOGLE DRIVE (DIJALANKAN DI AWAL)
 # =========================================================================
 def download_and_extract_models():
-    target_check_path = os.path.join(BASE_DIR, "backend_dynamic", "app", "inference.py")
+    target_check_path = os.path.join(BASE_DIR, "all_models_data", "backend_dynamic", "app", "inference.py")
     
     if not os.path.exists(target_check_path):
         print("⏳ File model/folder dynamic tidak ditemukan secara lokal. Mengunduh dari Google Drive...")
         output_zip = os.path.join(BASE_DIR, "all_models_data.zip")
-        url = f'https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}'
+        url = f'https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}&confirm=t'
         
         gdown.download(url, output_zip, quiet=False, fuzzy=True)
         
@@ -49,14 +50,14 @@ def download_and_extract_models():
             os.remove(output_zip)
         print("✅ Ekstraksi selesai!")
     else:
-        print("✅ Folder backend_dynamic lokal sudah tersedia.")
+        print("✅ Folder all_models_data/backend_dynamic lokal sudah tersedia.")
 
 # Eksekusi download sebelum modul di-import agar tidak error ModuleNotFoundError
 download_and_extract_models()
 
-# Import layanan Dynamic Pricing setelah folder dipastikan ada
-from backend_dynamic.app.inference import DemandForecastService
-from backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
+# Import layanan Dynamic Pricing dengan jalur folder induk all_models_data
+from all_models_data.backend_dynamic.app.inference import DemandForecastService
+from all_models_data.backend_dynamic.app.pricing import make_dynamic_pricing_recommendation
 
 # =========================================================================
 # VARIABEL GLOBAL & HELPER
@@ -154,10 +155,10 @@ async def lifespan(app: FastAPI):
     import tensorflow as tf
     print("🚀 [STARTUP] Memuat seluruh model AI secara terpadu...")
 
-    # 1. Load Klasifikasi Gambar
-    MODEL_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
-    CSV_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
-    PKL_PATH = os.path.join(BASE_DIR, 'backend_rekomendasi', 'database_fitur_rekomendasi_FULL.pkl')
+    # 1. Load Klasifikasi Gambar (Diarahkan ke all_models_data/backend_rekomendasi)
+    MODEL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'model_klasifikasi_terbaik.keras')
+    CSV_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'dataset_cv_final_v3.csv')
+    PKL_PATH = os.path.join(BASE_DIR, 'all_models_data', 'backend_rekomendasi', 'database_fitur_rekomendasi_FULL.pkl')
 
     if os.path.exists(MODEL_PATH):
         print(f"✅ Memuat model Deep Learning: {MODEL_PATH}")
@@ -175,14 +176,14 @@ async def lifespan(app: FastAPI):
     else:
         print("❌ ERROR: File CSV atau PKL tidak ditemukan!")
 
-    # 2. Load Next Item Model
+    # 2. Load Next Item Model (Diarahkan ke all_models_data/backend_nex_item)
     try:
-        next_item_model = tf.keras.models.load_model(os.path.join(BASE_DIR, 'backend_next_item/fashion_gru_model.keras'), compile=False)
-        with open(os.path.join(BASE_DIR, 'backend_next_item/item_encoder.pkl'), 'rb') as f:
+        next_item_model = tf.keras.models.load_model(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/fashion_gru_model.keras'), compile=False)
+        with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/item_encoder.pkl'), 'rb') as f:
             item_encoder = pickle.load(f)
         valid_asins = set(item_encoder.classes_)
         
-        with open(os.path.join(BASE_DIR, 'backend_next_item/meta_Amazon_Fashion.jsonl'), 'r', encoding='utf-8') as f:
+        with open(os.path.join(BASE_DIR, 'all_models_data/backend_nex_item/meta_Amazon_Fashion.jsonl'), 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -205,7 +206,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Next Item Load Warning: {e}")
 
-    # 3. Load Rating Model
+    # 3. Load Rating Model (Diarahkan ke all_models_data/backend_rating)
     try:
         rating_model = tf.keras.Sequential([
             tf.keras.layers.LSTM(64, activation="tanh", input_shape=(3,3), return_sequences=False),
@@ -213,19 +214,19 @@ async def lifespan(app: FastAPI):
             tf.keras.layers.Dense(32, activation="relu"),
             tf.keras.layers.Dense(1)
         ])
-        rating_model.load_weights(os.path.join(BASE_DIR, "backend_rating/fashioncast_final.weights.h5"))
-        category_encoder = joblib.load(os.path.join(BASE_DIR, "backend_rating/le_kategori.pkl"))
-        scaler_X = joblib.load(os.path.join(BASE_DIR, "backend_rating/scaler_X.pkl"))
-        scaler_y = joblib.load(os.path.join(BASE_DIR, "backend_rating/scaler_y.pkl"))
-        df_global = pd.read_csv(os.path.join(BASE_DIR, "backend_rating/fashion_timeseries.csv"))
-        comparison_df = pd.read_csv(os.path.join(BASE_DIR, "backend_rating/actual_vs_predicted.csv"))
+        rating_model.load_weights(os.path.join(BASE_DIR, "all_models_data/backend_rating/fashioncast_final.weights.h5"))
+        category_encoder = joblib.load(os.path.join(BASE_DIR, "all_models_data/backend_rating/le_kategori.pkl"))
+        scaler_X = joblib.load(os.path.join(BASE_DIR, "all_models_data/backend_rating/scaler_X.pkl"))
+        scaler_y = joblib.load(os.path.join(BASE_DIR, "all_models_data/backend_rating/scaler_y.pkl"))
+        df_global = pd.read_csv(os.path.join(BASE_DIR, "all_models_data/backend_rating/fashion_timeseries.csv"))
+        comparison_df = pd.read_csv(os.path.join(BASE_DIR, "all_models_data/backend_rating/actual_vs_predicted.csv"))
         print("✅ Rating LSTM Model Loaded")
     except Exception as e:
         print(f"⚠️ Rating Load Warning: {e}")
 
-    # 4. Load Dynamic Pricing
+    # 4. Load Dynamic Pricing (Diarahkan ke all_models_data/backend_dynamic)
     try:
-        forecast_service = DemandForecastService(artifact_dir=os.path.join(BASE_DIR, "backend_dynamic/artifacts"))
+        forecast_service = DemandForecastService(artifact_dir=os.path.join(BASE_DIR, "all_models_data/backend_dynamic/artifacts"))
         print("✅ Dynamic Pricing Service Loaded")
     except Exception as e:
         print(f"⚠️ Dynamic Pricing Load Warning: {e}")
